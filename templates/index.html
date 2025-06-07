@@ -1,0 +1,459 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Encrypted Messenger</title>
+    <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <style>
+        .chat-container {
+            height: calc(100vh - 64px);
+        }
+        .chat-messages-area {
+            height: calc(100% - 100px); /* Adjust based on header/footer size */
+            max-height: calc(100% - 100px);
+            overflow-y: auto;
+        }
+        .message-bubble {
+            max-width: 70%;
+            word-wrap: break-word;
+        }
+        .message-bubble.sent {
+            background-color: #dcf8c6;
+            border-radius: 7.5px 0 7.5px 7.5px;
+        }
+        .message-bubble.received {
+            background-color: white;
+            border-radius: 0 7.5px 7.5px 7.5px;
+        }
+        .typing-indicator {
+            display: none;
+            font-size: 0.8rem;
+            color: #667781;
+            font-style: italic;
+        }
+        .message-status {
+            font-size: 0.7rem;
+            color: #667781;
+        }
+        .encrypted-text {
+            font-size: 0.7rem;
+            color: #667781;
+            background-color: rgba(0,0,0,0.05);
+            padding: 2px 4px;
+            border-radius: 4px;
+            word-break: break-all;
+        }
+        .dark-mode {
+            background-color: #111b21;
+            color: #e9edef;
+        }
+        .dark-mode .message-bubble.received {
+            background-color: #202c33;
+            color: #e9edef;
+        }
+        .dark-mode .message-bubble.sent {
+            background-color: #005c4b;
+            color: #e9edef;
+        }
+        .dark-mode .bg-gray-100 {
+            background-color: #202c33;
+        }
+        .dark-mode .text-gray-600 {
+            color: #8696a0;
+        }
+    </style>
+</head>
+<body class="bg-gray-100">
+    <!-- Login/Register Modal -->
+    <div id="auth-modal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center">
+        <div class="bg-white p-8 rounded-lg shadow-lg w-96">
+            <h2 class="text-2xl font-bold mb-4">Welcome to Encrypted Messenger</h2>
+            <div class="mb-4">
+                <input type="text" id="username-input" class="w-full p-2 border rounded mb-2" placeholder="Enter username">
+                <input type="password" id="password-input" class="w-full p-2 border rounded" placeholder="Enter password">
+            </div>
+            <div class="flex gap-2">
+                <button onclick="register()" class="flex-1 bg-green-500 text-white p-2 rounded hover:bg-green-600">Register</button>
+                <button onclick="login()" class="flex-1 bg-blue-500 text-white p-2 rounded hover:bg-blue-600">Login</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Main Chat Interface -->
+    <div id="chat-interface" class="hidden h-screen flex flex-col">
+        <!-- Header -->
+        <div class="bg-gray-800 text-white p-4 flex justify-between items-center">
+            <div class="flex items-center">
+                <h1 class="text-xl font-semibold">Encrypted Messenger</h1>
+            </div>
+            <div class="flex items-center gap-4">
+                <button onclick="toggleDarkMode()" class="text-white">
+                    <i class="fas fa-moon"></i>
+                </button>
+                <button onclick="logout()" class="text-white">
+                    <i class="fas fa-sign-out-alt"></i>
+                </button>
+            </div>
+        </div>
+
+        <!-- User List -->
+        <div class="bg-white border-b p-4">
+            <select id="user-select" class="w-full p-2 border rounded">
+                <option value="">Select a user to chat with</option>
+            </select>
+        </div>
+
+        <!-- Chat Area -->
+        <div class="flex-1 overflow-hidden">
+            <div id="chat-messages" class="h-full overflow-y-auto p-4 space-y-4 chat-messages-area">
+                <!-- Messages will be inserted here -->
+            </div>
+        </div>
+
+        <!-- Typing Indicator -->
+        <div id="typing-indicator" class="typing-indicator p-2 bg-gray-100 hidden">
+            Someone is typing...
+        </div>
+
+        <!-- Input Area -->
+        <div class="bg-white border-t p-4">
+            <div class="flex gap-2">
+                <input type="text" id="message-input" class="flex-1 p-2 border rounded" placeholder="Type a message...">
+                <button onclick="sendMessage()" class="bg-green-500 text-white px-4 py-2 rounded hover:bg-green-600">
+                    <i class="fas fa-paper-plane"></i>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.1/socket.io.js"></script>
+    <script>
+        let socket;
+        let currentUser = null;
+        let selectedUser = null;
+        let token = null;
+        let privateKey = null;
+
+        // Initialize Socket.IO connection
+        function initSocket() {
+            socket = io({
+                query: {
+                    token: token
+                }
+            });
+
+            socket.on('connect', () => {
+                console.log('Connected to server');
+            });
+
+            socket.on('new_message', handleNewMessage);
+            socket.on('message_sent', handleMessageSent);
+            socket.on('user_typing', handleUserTyping);
+            socket.on('message_status', handleMessageStatus);
+        }
+
+        // Authentication functions
+        async function register() {
+            const username = document.getElementById('username-input').value;
+            const password = document.getElementById('password-input').value;
+            
+            if (!username || !password) {
+                alert('Please enter both username and password');
+                return;
+            }
+            
+            try {
+                const response = await fetch('/register', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ username, password })
+                });
+                const data = await response.json();
+                if (data.token) {
+                    handleAuthSuccess(data);
+                } else {
+                    alert(data.error || 'Registration failed');
+                }
+            } catch (error) {
+                console.error('Registration error:', error);
+                alert('Registration failed: ' + (error.message || 'Unknown error'));
+            }
+        }
+
+        async function login() {
+            const username = document.getElementById('username-input').value;
+            const password = document.getElementById('password-input').value;
+            try {
+                const response = await fetch('/login', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ username, password })
+                });
+                const data = await response.json();
+                if (data.token) {
+                    handleAuthSuccess(data);
+                } else {
+                    alert(data.error || 'Login failed');
+                }
+            } catch (error) {
+                console.error('Login error:', error);
+                alert('Login failed');
+            }
+        }
+
+        function handleAuthSuccess(data) {
+            token = data.token;
+            currentUser = data.username;
+            privateKey = data.private_key;
+            document.getElementById('auth-modal').classList.add('hidden');
+            document.getElementById('chat-interface').classList.remove('hidden');
+            initSocket();
+            loadUsers();
+            loadMessages();
+        }
+
+        function logout() {
+            token = null;
+            currentUser = null;
+            document.getElementById('auth-modal').classList.remove('hidden');
+            document.getElementById('chat-interface').classList.add('hidden');
+            if (socket) {
+                socket.disconnect();
+            }
+        }
+
+        // User management
+        async function loadUsers() {
+            try {
+                const response = await fetch('/users', {
+                    headers: {
+                        'Authorization': token
+                    }
+                });
+                const users = await response.json();
+                const select = document.getElementById('user-select');
+                select.innerHTML = '<option value="">Select a user to chat with</option>';
+                users.forEach(user => {
+                    if (user.username !== currentUser) {
+                        const option = document.createElement('option');
+                        option.value = user.id;
+                        option.textContent = user.username;
+                        select.appendChild(option);
+                    }
+                });
+            } catch (error) {
+                console.error('Error loading users:', error);
+            }
+        }
+
+        // Message handling
+        async function sendMessage() {
+            if (!selectedUser) {
+                alert('Please select a user to chat with');
+                return;
+            }
+
+            const input = document.getElementById('message-input');
+            const message = input.value.trim();
+            if (!message) return;
+
+            socket.emit('send_message', {
+                token: token,
+                recipient_id: selectedUser,
+                content: message
+            });
+
+            input.value = '';
+        }
+
+        function handleNewMessage(data) {
+            appendMessage(data, false);
+        }
+
+        function handleMessageSent(data) {
+            appendMessage(data, true);
+        }
+
+        function appendMessage(data, isSent) {
+            const messagesDiv = document.getElementById('chat-messages');
+            const messageDiv = document.createElement('div');
+            messageDiv.className = `flex ${isSent ? 'justify-end' : 'justify-start'}`;
+            messageDiv.setAttribute('data-message-id', data.id);
+
+            const bubble = document.createElement('div');
+            bubble.className = `message-bubble ${isSent ? 'sent' : 'received'} p-3`;
+            
+            const content = document.createElement('div');
+            content.className = 'message-content';
+            content.textContent = data.content;
+            
+            const status = document.createElement('div');
+            status.className = 'message-status';
+            status.textContent = data.status;
+            
+            const encryptedLabel = document.createElement('div');
+            encryptedLabel.className = 'encrypted-text';
+            encryptedLabel.textContent = isSent ? 'Encrypted (sent)' : 'Encrypted (received)';
+            
+            bubble.appendChild(content);
+            bubble.appendChild(status);
+            bubble.appendChild(encryptedLabel);
+
+            if (!isSent) {
+                const decryptButton = document.createElement('button');
+                decryptButton.className = 'bg-blue-500 text-white px-2 py-1 rounded text-xs mt-1';
+                decryptButton.textContent = 'Decrypt';
+                decryptButton.onclick = async () => {
+                    try {
+                        const decryptedContent = await decryptMessage(data.content, privateKey);
+                        content.textContent = decryptedContent;
+                        encryptedLabel.textContent = 'Decrypted';
+                        decryptButton.style.display = 'none';
+                    } catch (e) {
+                        console.error('Decryption failed:', e);
+                        alert('Decryption failed!');
+                    }
+                };
+                bubble.appendChild(decryptButton);
+            }
+            
+            messageDiv.appendChild(bubble);
+            messagesDiv.appendChild(messageDiv);
+            
+            messagesDiv.scrollTop = messagesDiv.scrollHeight;
+        }
+
+        // Helper for base64 decoding (needed for ArrayBuffer to base64 for crypto ops)
+        function base64ToArrayBuffer(base64) {
+            const binary_string = window.atob(base64);
+            const len = binary_string.length;
+            const bytes = new Uint8Array(len);
+            for (let i = 0; i < len; i++) {
+                bytes[i] = binary_string.charCodeAt(i);
+            }
+            return bytes.buffer;
+        }
+
+        function arrayBufferToBase64(buffer) {
+            let binary = '';
+            const bytes = new Uint8Array(buffer);
+            const len = bytes.byteLength;
+            for (let i = 0; i < len; i++) {
+                binary += String.fromCharCode(bytes[i]);
+            }
+            return window.btoa(binary);
+        }
+
+        // Client-side decryption function (using Web Crypto API)
+        async function decryptMessage(encryptedDataBase64, privateKeyPem) {
+            console.log('Raw privateKeyPem:', privateKeyPem); // Debugging
+
+            // Remove PEM headers/footers and any whitespace, then base64 decode
+            const pemWithoutHeaders = privateKeyPem
+                .replace(/\s*-----BEGIN PRIVATE KEY-----\s*/g, '')
+                .replace(/\s*-----END PRIVATE KEY-----\s*/g, '')
+                .replace(/\n/g, '') // Remove all newline characters
+                .replace(/\r/g, ''); // Remove carriage return characters
+
+            console.log('Cleaned pemWithoutHeaders for atob:', pemWithoutHeaders); // Debugging
+
+            const privateKeyBuffer = base64ToArrayBuffer(pemWithoutHeaders);
+
+            const privateKey = await crypto.subtle.importKey(
+                'pkcs8',
+                privateKeyBuffer,
+                {
+                    name: "RSA-OAEP",
+                    hash: "SHA-256",
+                },
+                true,
+                ["decrypt"]
+            );
+
+            console.log('Raw encryptedDataBase64:', encryptedDataBase64); // Debugging
+            const encryptedDataBuffer = base64ToArrayBuffer(encryptedDataBase64);
+
+            const decrypted = await crypto.subtle.decrypt(
+                {
+                    name: "RSA-OAEP",
+                },
+                privateKey,
+                encryptedDataBuffer
+            );
+            return new TextDecoder().decode(decrypted);
+        }
+
+        // Typing indicator
+        let typingTimeout;
+        document.getElementById('message-input').addEventListener('input', () => {
+            if (selectedUser) {
+                socket.emit('typing', {
+                    token: token,
+                    recipient_id: selectedUser
+                });
+            }
+        });
+
+        function handleUserTyping(data) {
+            const indicator = document.getElementById('typing-indicator');
+            indicator.textContent = `${data.username} is typing...`;
+            indicator.classList.remove('hidden');
+            
+            clearTimeout(typingTimeout);
+            typingTimeout = setTimeout(() => {
+                indicator.classList.add('hidden');
+            }, 3000);
+        }
+
+        function handleMessageStatus(data) {
+            const message = document.querySelector(`[data-message-id="${data.message_id}"]`);
+            if (message) {
+                const status = message.querySelector('.message-status');
+                status.textContent = data.status;
+            }
+        }
+
+        // Message loading
+        async function loadMessages() {
+            try {
+                const response = await fetch('/messages', {
+                    headers: {
+                        'Authorization': token
+                    }
+                });
+                const messages = await response.json();
+                const messagesDiv = document.getElementById('chat-messages');
+                messagesDiv.innerHTML = '';
+                messages.forEach(msg => {
+                    appendMessage(msg, msg.sender === currentUser);
+                });
+            } catch (error) {
+                console.error('Error loading messages:', error);
+            }
+        }
+
+        // Dark mode
+        function toggleDarkMode() {
+            document.body.classList.toggle('dark-mode');
+        }
+
+        // Event listeners
+        document.getElementById('user-select').addEventListener('change', (e) => {
+            selectedUser = e.target.value;
+            loadMessages();
+        });
+
+        document.getElementById('message-input').addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') {
+                sendMessage();
+            }
+        });
+    </script>
+</body>
+</html> 
