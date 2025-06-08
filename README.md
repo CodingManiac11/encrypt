@@ -113,6 +113,13 @@ This application uses RSA asymmetric encryption provided by the `cryptography` l
 -   **Storage**: Encrypted messages are stored in the `chat.db` SQLite database.
 -   **Decryption Process**: The receiver's browser, upon clicking the "Decrypt" button, uses the receiver's private key (securely passed during login) to decrypt the message locally.
 
+### Screenshots
+![image](https://github.com/user-attachments/assets/d27e608b-161b-485d-93ae-4783b5cebe20)
+![image](https://github.com/user-attachments/assets/23ddbb7b-31e8-424d-8b92-4cfd269da869)
+![image](https://github.com/user-attachments/assets/b7e56961-4fb2-46fb-93f1-595593ff166b)
+
+
+
 ## Troubleshooting
 
 -   **`AttributeError: 'SocketIO' object has no attribute 'wsgi_app'` or `ssl.wrap_socket` errors**: This indicates an outdated `app.py` file or a lingering `eventlet` installation. Follow the "Clean Up Previous Installations and Database" steps rigorously, especially deleting `__pycache__` and `chat.db`, then reinstall dependencies.
